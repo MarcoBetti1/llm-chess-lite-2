@@ -5,6 +5,7 @@ export interface PromptCompletionRequest {
   system: string;
   user: string;
   temperature?: number;
+  reasoningEffort?: "none" | "low" | "medium" | "high";
   maxTokens?: number;
 }
 
@@ -28,18 +29,27 @@ export function createOpenAIResponsesProvider(): LlmProvider {
       if (!process.env.OPENAI_API_KEY) {
         throw new Error("OPENAI_API_KEY is not set. Add it to .env or the shell environment.");
       }
-      client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, maxRetries: 0, timeout: 180000 });
       const payload: Record<string, unknown> = {
         model: request.model,
+        store: false,
+        truncation: "disabled",
+        service_tier: "default",
+        max_output_tokens: request.maxTokens ?? 2048,
         input: [
           { role: "system", content: request.system },
           { role: "user", content: request.user }
         ]
       };
-      if (request.temperature !== undefined) payload.temperature = request.temperature;
+      const reasoningModel = /^gpt-(5|6)([.-]|$)/.test(request.model);
+      if (reasoningModel) payload.reasoning = { effort: request.reasoningEffort ?? "low" };
+      else if (request.temperature !== undefined) payload.temperature = request.temperature;
       if (request.maxTokens !== undefined) payload.max_output_tokens = request.maxTokens;
 
       const response = await client.responses.create(payload as never);
+      if (response.status !== "completed") {
+        throw new Error(`Model response ${response.status}; no move applied. Token usage may still be billed.`);
+      }
       return {
         text: extractOutputText(response).trim(),
         usage: extractUsage(response)

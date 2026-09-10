@@ -28,13 +28,8 @@ type RuntimeContext = {
   node: Record<string, { output: NodeOutput; rawOutput?: string }>;
 };
 
-const UCI_RE = /\b([a-h][1-8][a-h][1-8][qrbn]?)\b/i;
-const CASTLE_MAP: Record<string, string> = {
-  "o-o": "e1g1",
-  "0-0": "e1g1",
-  "o-o-o": "e1c1",
-  "0-0-0": "e1c1"
-};
+const UCI_RE = /^[a-h][1-8][a-h][1-8][qrbn]?$/i;
+
 
 export async function runPromptGraphMove(
   request: LlmMoveRequest,
@@ -92,8 +87,7 @@ export async function runPromptGraphMove(
 
   let finalMove = context.finalMove || context.candidateMove;
   if (!legalMoves.includes(finalMove)) {
-    finalMove = legalMoves[0];
-    context.fallbackUsed = true;
+    throw new Error("The model did not return a legal move. No substitute move was played.");
   }
 
   const move = chess.move({
@@ -135,7 +129,8 @@ async function executeNode(
     const user = renderTemplate(node.promptTemplate || "", context);
     input = user;
     const completion = await provider.complete({
-      model: node.model || "gpt-4.1-mini",
+      model: node.model || "gpt-5.6-luna",
+      reasoningEffort: node.reasoningEffort,
       system,
       user,
       temperature: node.temperature,
@@ -221,18 +216,12 @@ function executeLogicNode(node: PromptNode, context: RuntimeContext): NodeOutput
   return { match: true };
 }
 
-function extractMove(text: string, sideToMove: "white" | "black"): string {
-  const lowered = (text || "").toLowerCase();
-  const castle = Object.keys(CASTLE_MAP).find((token) => lowered.includes(token));
-  if (castle) {
-    const mapped = CASTLE_MAP[castle];
-    if (sideToMove === "black") {
-      return mapped.replace("e1", "e8").replace("g1", "g8").replace("c1", "c8");
-    }
-    return mapped;
-  }
-  const match = lowered.match(UCI_RE);
-  return match ? match[1].toLowerCase() : "";
+export function extractMove(text: string, sideToMove: "white" | "black"): string {
+  const token = text.trim().toLowerCase();
+  const rank = sideToMove === "black" ? "8" : "1";
+  if (token === "o-o-o" || token === "0-0-0") return `e${rank}c${rank}`;
+  if (token === "o-o" || token === "0-0") return `e${rank}g${rank}`;
+  return UCI_RE.test(token) ? token : "";
 }
 
 function renderTemplate(template: string, context: RuntimeContext): string {

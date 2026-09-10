@@ -24,6 +24,7 @@ export interface PromptNode {
   position: { x: number; y: number };
   model?: string;
   temperature?: number;
+  reasoningEffort?: "none" | "low" | "medium" | "high";
   maxTokens?: number;
   systemPrompt?: string;
   promptTemplate?: string;
